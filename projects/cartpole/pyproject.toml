@@ -1,0 +1,23 @@
+[project]
+name = "cartpole"
+version = "0.1.0"
+description = "Cartpole balance and swing-up tasks for mjlab."
+authors = [
+    { name = "Brandon Feist", email = "brandon.feist@hey.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "mjlab>=1.6.0",
+    # rsl-rl-lib 5.4.2 passes wandb.Settings(start_method=...), removed in wandb 0.29.0.
+    "wandb<0.29",
+]
+
+[project.scripts]
+cartpole-play = "cartpole.play:main"
+
+[project.entry-points."mjlab.tasks"]
+cartpole = "cartpole"
+
+[build-system]
+requires = ["uv_build>=0.13.5,<0.14.0"]
+build-backend = "uv_build"

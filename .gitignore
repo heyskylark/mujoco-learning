@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Virtual environment (uv)
+.venv/
+
+# Training runs, checkpoints, experiment tracking
+logs/
+wandb/
+outputs/
+runs/
+videos/
+*.pt
+*.pth
+*.onnx
+events.out.tfevents.*
+
+# MuJoCo
+MUJOCO_LOG.TXT
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store

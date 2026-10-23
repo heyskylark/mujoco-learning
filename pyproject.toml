@@ -1,0 +1,28 @@
+[project]
+name = "mujoco-learning"
+version = "0.1.0"
+description = "MuJoCo / mjlab reinforcement learning experiments."
+readme = "README.md"
+authors = [
+    { name = "Brandon Feist", email = "brandon.feist@hey.com" }
+]
+requires-python = ">=3.13"
+# Every project under projects/ is listed here so `uv sync` / `uv run` at the
+# repo root installs all of them and mjlab sees every registered task.
+dependencies = [
+    "cartpole",
+]
+
+[dependency-groups]
+dev = [
+    "mujoco-stubs~=3.11.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["projects/*"]
+
+[tool.uv.sources]
+cartpole = { workspace = true }
