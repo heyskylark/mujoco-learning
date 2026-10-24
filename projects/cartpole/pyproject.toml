@@ -14,7 +14,6 @@ dependencies = [
 
 [project.scripts]
 cartpole-play = "cartpole.play:main"
-cartpole-warm-start = "cartpole.warm_start:main"
 
 [project.entry-points."mjlab.tasks"]
 cartpole = "cartpole"

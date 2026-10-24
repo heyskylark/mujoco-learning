@@ -62,10 +62,11 @@ class Rk4MujocoCfg(MujocoCfg):
 # Entities
 
 
-def _get_spec(n_poles: int) -> mujoco.MjSpec:
+def _get_spec(n_poles: int, max_force_n: float) -> mujoco.MjSpec:
     """Load the 2-pole XML and chain on poles 3..n_poles at each previous pole's tip.
 
     The cart and rails sit at z = n_poles m so all poles hanging down clear the floor.
+    The motor's gear is set to `max_force_n`; with ctrlrange ±1 that is its peak force.
     """
     spec = mujoco.MjSpec.from_file(str(_CARTPOLE_XML))
     pole_default = spec.find_default("pole")
@@ -74,6 +75,7 @@ def _get_spec(n_poles: int) -> mujoco.MjSpec:
         pole.add_joint(pole_default, name=f"hinge_{i}")
         pole.add_geom(pole_default, name=f"pole_{i}")
     spec.body("cart").pos[2] = n_poles
+    spec.actuator("slide").gear[0] = max_force_n
     for rail in ("rail1", "rail2"):
         spec.geom(rail).pos[2] = n_poles
     return spec
@@ -94,9 +96,9 @@ _CARTPOLE_ARTICULATION = EntityArticulationInfoCfg(
 )
 
 
-def _get_cartpole_cfg(swing_up: bool, n_poles: int) -> EntityCfg:
+def _get_cartpole_cfg(swing_up: bool, n_poles: int, max_force_n: float) -> EntityCfg:
     return EntityCfg(
-        spec_fn=functools.partial(_get_spec, n_poles),
+        spec_fn=functools.partial(_get_spec, n_poles, max_force_n),
         articulation=_CARTPOLE_ARTICULATION,
         # Swing-up hangs pole 1 down; later hinges are relative, so 0 keeps them in line.
         init_state=EntityCfg.InitialStateCfg(
@@ -291,7 +293,12 @@ class PoleFallenAfterUprightStart:
 # Environment config.
 
 
-def _make_env_cfg(swing_up: bool, n_poles: int) -> ManagerBasedRlEnvCfg:
+def _make_env_cfg(
+    swing_up: bool,
+    n_poles: int,
+    max_force_n: float,
+    fall_arm_after_s: float = 1.0,
+) -> ManagerBasedRlEnvCfg:
     cart_cfg = SceneEntityCfg("cartpole", joint_names=("slider",))
     hinge_cfg = SceneEntityCfg("cartpole", joint_names=("hinge_.*",))
 
@@ -463,21 +470,23 @@ def _make_env_cfg(swing_up: bool, n_poles: int) -> ManagerBasedRlEnvCfg:
     }
     if swing_up:
         # Upright-start episodes end when a pole tips past ~37 deg (cos < 0.8), once
-        # they have held both poles within ~18 deg (cos > 0.95) for 1 s.
+        # they have held all poles within ~18 deg (cos > 0.95) for `fall_arm_after_s`.
+        # A delay is an escape hatch: a policy can drop the poles before the term
+        # arms and keep collecting swing-up reward. 0 arms on the first step.
         terminations["fallen"] = TerminationTermCfg(
             func=PoleFallenAfterUprightStart,
             params={
                 "hinge_cfg": hinge_cfg,
                 "min_cos": 0.8,
                 "upright_cos": 0.95,
-                "arm_after_s": 1.0,
+                "arm_after_s": fall_arm_after_s,
             },
         )
 
     return ManagerBasedRlEnvCfg(
         scene=SceneCfg(
             terrain=TerrainEntityCfg(terrain_type="plane"),
-            entities={"cartpole": _get_cartpole_cfg(swing_up, n_poles)},
+            entities={"cartpole": _get_cartpole_cfg(swing_up, n_poles, max_force_n)},
             num_envs=1,
             env_spacing=4.0,
         ),
@@ -507,8 +516,9 @@ def _make_env_cfg(swing_up: bool, n_poles: int) -> ManagerBasedRlEnvCfg:
 def cartpole_balance_env_cfg(
     play: bool = False,
     n_poles: int = 2,
+    max_force_n: float = 10.0,
 ) -> ManagerBasedRlEnvCfg:
-    cfg = _make_env_cfg(swing_up=False, n_poles=n_poles)
+    cfg = _make_env_cfg(swing_up=False, n_poles=n_poles, max_force_n=max_force_n)
     if play:
         cfg.episode_length_s = 1e10
         cfg.observations["actor"].enable_corruption = False
@@ -520,8 +530,15 @@ def cartpole_balance_env_cfg(
 def cartpole_swingup_env_cfg(
     play: bool = False,
     n_poles: int = 2,
+    max_force_n: float = 10.0,
+    fall_arm_after_s: float = 1.0,
 ) -> ManagerBasedRlEnvCfg:
-    cfg = _make_env_cfg(swing_up=True, n_poles=n_poles)
+    cfg = _make_env_cfg(
+        swing_up=True,
+        n_poles=n_poles,
+        max_force_n=max_force_n,
+        fall_arm_after_s=fall_arm_after_s,
+    )
     if play:
         cfg.episode_length_s = 1e10
         cfg.observations["actor"].enable_corruption = False

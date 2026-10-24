@@ -410,10 +410,9 @@ are omitted: pole masses, pole COM shifts, hinge_1 and slider encoder offsets.
 - **A/D pushes:** still knock both policies over (0% held); they swing back up
   afterwards.
 
-### 7. Triple pendulum, warm-started from the 2-pole policy
+### 7. Triple pendulum
 
-**Goal:** add a third link and see how the 2-pole policy adapts when trained
-on it.
+**Goal:** add a third link and train a fresh policy on it.
 
 **Changes:**
 
@@ -426,28 +425,19 @@ on it.
   - The 2-pole model is unchanged.
 - **Tasks:** new `Cartpole3-Balance` and `Cartpole3-Swingup`, logging to
   `logs/rsl_rl/cartpole3/`. The 2-pole tasks keep their IDs and behaviour.
-  Everything else carries over from Experiment 6 unchanged:
-  - reward, upright starts, fall termination
-  - randomization, noise, latency, pushes
-  - motor (gear 10, ±10 N)
+  Everything else carries over from Experiment 6 unchanged: reward, upright
+  starts, fall termination, randomization, noise, latency and pushes
+  (±10 N).
+- **Motor: 30 N** (gear 30, randomized ×0.9–1.2 to 27–36 N), chosen from
+  the feasibility check below. The 2-pole tasks keep 10 N. The task config
+  functions take `max_force_n`, which `_get_spec` writes to the actuator gear.
 - **Generalized config:**
   - hinges are selected by `hinge_.*` and pole bodies by `pole_.*`
   - initial states set `hinge_1` (0 or π) plus `hinge_[2-9] = 0`
   - viewer distance is `3 × n_poles`
 - **Observations:** 11-D: cart position, cos/sin of 3 hinges, cart velocity,
   3 hinge velocities.
-- **Warm start (`cartpole-warm-start`):**
-  - Each network's first layer gets new zero columns for `cos(hinge_3)`,
-    `sin(hinge_3)` and `vel(hinge_3)`.
-  - Existing weights and their Adam moments move to their new column
-    positions.
-  - The iteration counter resets to 0.
-  - The converted policy outputs exactly the 2-pole policy's actions (max
-    difference 0.0 on 1024 random inputs) and ignores pole 3 until training
-    changes those weights.
-  - Source: Experiment 5's `model_4250` →
-    `logs/rsl_rl/cartpole3/warm_start_exp5_model_4250/model_0.pt`.
-  - Policy std carries over at 0.10, so exploration starts narrow.
+- **Training:** fresh policies, trained from scratch.
 
 **Feasibility check** (CPU MuJoCo, linearized at upright, discrete LQR with
 the motor saturating at the gear limit):
@@ -460,10 +450,173 @@ the motor saturating at the gear limit):
 | 3 | 40 | 9.9 1/s (101 ms) | 4.4° | 3.8° |
 
 - **The catch window is tiny with 10 N:** ~1.3° of tip tilt, against 5.8° for
-  two poles. A faster control rate doesn't help; more force does.
-- **Some upright starts may be uncatchable:** reset noise is ±0.034 rad
-  (±1.9°) on each hinge, larger than the 1.3° window.
+  two poles.
 - **No NaNs with RK4:** 2000 steps of random actions on 16384 envs produced
   no non-finite observations (peak |qvel| 63.7).
 
-**Result:** not yet trained.
+Fraction of 100 upright reset states (±0.034 rad per hinge, ±0.01 velocity
+noise, the training reset distribution) held for 10 s by a saturated LQR.
+The "delay-aware" controller is designed for the latency it runs with,
+using an augmented state `[x, u_prev]`:
+
+| Motor | 20 Hz, 0 ms | 20 Hz, 10 ms | 20 Hz, 20 ms | 50 Hz, 0 ms | 50 Hz, 10 ms | 50 Hz, 20 ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10 N | 58% | 47% | 38% | 57% | 49% | 47% |
+| 20 N | 99% | 93% | 84% | 99% | 92% | 94% |
+| 30 N | 100% | 99% | 89% | 100% | 100% | 100% |
+
+- **Force is the binding constraint:** at 10 N even an ideal linear
+  controller, with no sensor noise, offsets or randomization, loses 42–62% of
+  the reset states. At 20 N it holds 84–99%.
+- **Control rate matters only with latency:** 20 Hz and 50 Hz tie at 0 ms.
+  At 20 ms, 50 Hz recovers 9–11 more points.
+- **Latency-unaware control fails outright:** a plain LQR, not designed for
+  the delay, held 0% at every gear with 20 ms latency. The policy doesn't
+  observe its previous action, which the delay-aware controller uses.
+
+**Decision:** 30 N, 20 Hz, no previous-action observation. At 30 N the
+delay-aware LQR holds 89–100% of upright resets.
+
+**Evaluation** for all runs below uses Experiment 5's method (2048 envs, one
+50 s episode, `fallen` removed), in the randomized condition unless noted.
+
+#### Run 1: fall-termination arm delay 1.0 s
+
+`logs/rsl_rl/cartpole3/2026-10-23_19-10-58`. Fresh, 16384 envs,
+2000 iterations.
+
+| Iteration | 250 | 500 | 750 | 1000 | 1250 | 1500 | 1750 | 1999 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Randomized hanging: both up | 9.7% | 12.4% | 16.2% | 17.3% | 17.0% | 18.4% | 18.9% | 19.2% |
+| Randomized hanging: held | 0% | 0% | 0% | 0% | 0% | 0% | 0% | 0% |
+| Randomized upright: mean first fall | 0.5 s | 0.6 s | 0.7 s | 0.7 s | 0.7 s | 0.8 s | 0.8 s | 0.9 s |
+
+`model_1999` under nominal physics (no randomization, latency, noise or
+pushes): both up 20.7%, held 0%, mean first fall from upright 1.0 s.
+
+Training curves (50-iteration means):
+
+| Iteration | 250 | 500 | 1000 | 1500 | 1999 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Per-step reward | 0.449 | 0.467 | 0.492 | 0.489 | 0.474 |
+| Policy std | 0.064 | 0.052 | 0.056 | 0.059 | 0.059 |
+| `fallen` terminations per log step | 0.01 | 0.02 | 0.28 | 0.79 | 1.78 |
+| Episode length | 1000 | 999 | 986 | 961 | 914 |
+
+**Result:** no balancing. The policy hovers near the top (~19% both up) and
+never holds, even under nominal physics. The reward is flat from
+~iteration 1000.
+
+- **The fall termination barely fired:** upright starts fall within 0.5–0.9 s,
+  but `fallen` only arms after 1.0 s upright. The 1.0 s delay came from
+  2-pole policies' early fall times (1.1–1.7 s); 3 poles fall faster (101 ms
+  e-fold against 142 ms). Training therefore ran close to Experiment 3's
+  setup, with no strong fall signal, which also plateaued at hovering.
+  Terminations are rising late (0.01 → 1.78 per iteration) as more upright
+  starts survive the full second.
+- **Exploration collapsed early:** policy std was 0.064 by iteration 250. In
+  Experiment 4 it was 0.215 at 100 and 0.146 at 300.
+
+**Change for run 2:**
+
+- **3-pole fall arm delay: 1.0 s → 0.3 s.** `cartpole_swingup_env_cfg`
+  takes `fall_arm_after_s`; `Cartpole3-Swingup` passes 0.3, and the 2-pole
+  tasks keep 1.0.
+- **Check:** with zero action from upright starts, `fallen` ended 100% of
+  3-pole episodes within 3 s (median 0.65 s). At 1.0 s, the same check ended
+  4.0% of 2-pole episodes.
+
+#### Run 2: arm delay 0.3 s
+
+`logs/rsl_rl/cartpole3/2026-10-23_20-08-03`. Fresh, 16384 envs,
+3000 iterations.
+
+| Iteration | 250 | 500 | 1000 | 1500 | 2000 | 2500 | 2750 | 2999 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Hanging: both up | 7.7% | 9.1% | 8.5% | 7.5% | 6.9% | 2.7% | 3.5% | 3.7% |
+| Hanging: held / ever held 2 s | 0% / 0% | 0% / 0% | 0% / 0% | 0% / 0% | 0% / 0% | 0% / 0% | 0% / 0% | 0% / 0% |
+| Upright: mean first fall | 0.2 s | 0.2 s | 0.2 s | 0.2 s | 0.2 s | 0.2 s | 0.2 s | 0.2 s |
+
+Training curves (50-iteration means), `fallen` vs `time_out` episode ends:
+
+| Iteration | 250 | 1000 | 2000 | 2999 |
+| --- | ---: | ---: | ---: | ---: |
+| `fallen` / `time_out` per log step | 0.63 / 16.2 | 0.58 / 16.2 | 1.26 / 15.5 | 2.80 / 15.1 |
+| Per-step reward | 0.435 | 0.466 | 0.460 | 0.434 |
+| Policy std | 0.106 | 0.066 | 0.074 | 0.080 |
+
+**Result:** worse than run 1. Swing-up both-up time fell to ~4%, and upright
+starts now leave cos > 0.95 within 0.2 s.
+
+**Diagnosis:**
+
+- **The arm delay is a loophole:** with zero action, upright starts leave
+  cos > 0.95 after 0.48 s on average. The trained policy leaves in 0.2 s, so
+  it actively knocks the poles down before the 0.3 s arm time.
+- **Why that pays off:** an episode that never arms can't end on `fallen`. The
+  policy keeps collecting swing-up reward instead of risking a termination it
+  can't yet avoid by balancing. Only ~4% of episode ends were `fallen` early
+  on, although 25% of episodes start upright.
+- **Run 1 fits the same pattern:** its upright starts also fell (0.5–0.9 s)
+  before its 1.0 s arm time.
+- **Experiment 4 had no escape:** its rule fired as soon as an upright start
+  fell, with no arm delay, and that setup learned to balance. The 2-pole runs
+  of Experiments 5–6 learned despite the 1.0 s delay. Presumably the 2-pole
+  policy could balance within the second before the loophole mattered (not
+  tested).
+
+**Change for run 3:**
+
+- **3-pole fall arm delay: 0.3 s → 0.** `Cartpole3-Swingup` now ends an
+  upright-start episode as soon as any pole's cos < 0.8, matching
+  Experiment 4. The 2-pole tasks keep 1.0 s.
+- **Check:** a policy that throws the poles down at full force from upright
+  is now ended by `fallen` in 100% of episodes (median 0.20 s). Hanging
+  starts under random actions never trigger `fallen`.
+
+#### Run 3: no arm delay
+
+`logs/rsl_rl/cartpole3/2026-10-23_23-18-09`. Fresh, 16384 envs,
+1000 iterations. "Time to fall" is the time to the `fallen` threshold (any
+pole cos < 0.8) from upright starts; zero action takes 0.65 s (median).
+
+| Iteration | 100 | 250 | 400 | 500 | 600 | 700 | 800 | 900 | 999 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Upright: mean time to fall | 0.7 s | 0.7 s | 0.8 s | 0.8 s | 0.9 s | 0.9 s | 0.9 s | 0.9 s | 0.9 s |
+
+| Iteration | 250 | 500 | 750 | 999 |
+| --- | ---: | ---: | ---: | ---: |
+| Hanging: all poles up | 10.4% | 11.8% | 14.4% | 15.9% |
+
+- **Held or ever held 2 s:** 0% at every checkpoint, from both start types.
+- **Nominal physics:** `model_999` gives the same result (upright time to
+  fall 0.9 s, hanging all up 17.0%), so randomization isn't the blocker.
+- **All runs at iteration ~1000 (upright: mean time to fall):** run 1 0.9 s,
+  run 2 0.3 s, run 3 0.9 s.
+
+Training curves (50-iteration means):
+
+| Iteration | 100 | 250 | 500 | 750 | 999 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Per-step reward | 0.280 | 0.333 | 0.356 | ~0.36 | 0.373 |
+| Episode length | 748 | 753 | 762 | ~757 | 753 |
+| `fallen` / `time_out` per log step | 5.8 / 17.4 | 5.1 / 15.8 | 4.8 / 15.0 | ~5.7 / 17.3 | 5.0 / 14.8 |
+| Policy std | 0.156 | 0.069 | 0.050 | 0.052 | 0.052 |
+
+**Result:** the loophole is closed, but there's still no balancing.
+
+- **No more deliberate drops:** upright starts survive 0.9 s, a little longer
+  than zero action's 0.65 s, against 0.2 s in run 2.
+- **Falls aren't getting rarer:** the `fallen` share of episode ends stays at
+  ~25% from iteration 100 to 999. That is essentially every upright start,
+  and episode length is flat at ~750. In Experiment 4 (2 poles), upright
+  time to first fall went 1.3 → 1.7 → 13.2 s at iterations 100/250/400.
+- **Exploration collapsed by ~500:** policy std was 0.05, so more of the
+  same training is unlikely to find the precise feedback balance needs.
+- **Slow upward trends only:** swing-up all-up rose 10% → 16% and reward
+  0.33 → 0.37 over 1000 iterations.
+
+**Next:** add the previous action to the actor's observations. The
+feasibility check shows that with motor latency, a controller needs its
+previous command to balance: 0% held without it, 89–100% with it at 30 N.
+Raising `entropy_coef` to slow the std collapse is queued after that.
