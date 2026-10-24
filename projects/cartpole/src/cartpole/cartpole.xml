@@ -19,7 +19,8 @@
     <camera name="fixed" pos="0 -6 2" zaxis="0 -1 0"/>
     <camera name="lookatcart" mode="targetbody" target="cart" pos="0 -4 3"/>
     <geom name="floor" pos="0 0 -.05" size="4 4 .2" type="plane" material="grid"/>
-    <!-- Cart at z=2 so both poles hanging down (2 m) clear the floor. -->
+    <!-- Cart at z=2 so both poles hanging down (2 m) clear the floor. _get_spec()
+         chains on extra poles and raises the cart and rails to z = number of poles. -->
     <geom name="rail1" type="capsule" pos="0 .07 2" zaxis="1 0 0" size="0.02 2" material="decoration"/>
     <geom name="rail2" type="capsule" pos="0 -.07 2" zaxis="1 0 0" size="0.02 2" material="decoration"/>
     <body name="cart" pos="0 0 2">

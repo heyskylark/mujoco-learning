@@ -32,19 +32,37 @@ Run every command from the repo root. Training writes to
 
 ### cartpole
 
-A double pendulum on a sliding cart. The policy pushes the cart to keep both
-links upright.
+A pendulum of two (or three) links on a sliding cart. The policy pushes the
+cart to keep every link upright. See
+[`projects/cartpole/RESEARCH.md`](projects/cartpole/RESEARCH.md) for the
+experiment log.
 
-| Task ID            | Goal                                                  |
-| ------------------ | ----------------------------------------------------- |
-| `Cartpole-Balance` | Keep a nearly upright pendulum balanced               |
-| `Cartpole-Swingup` | Swing the pendulum up from hanging, then balance it   |
+| Task ID             | Goal                                                    |
+| ------------------- | ------------------------------------------------------- |
+| `Cartpole-Balance`  | Keep a nearly upright 2-link pendulum balanced          |
+| `Cartpole-Swingup`  | Swing the 2-link pendulum up from hanging, then balance |
+| `Cartpole3-Balance` | Same as `Cartpole-Balance` with 3 links                 |
+| `Cartpole3-Swingup` | Same as `Cartpole-Swingup` with 3 links                 |
+
+2-link runs log to `logs/rsl_rl/cartpole/` and 3-link runs to
+`logs/rsl_rl/cartpole3/`.
 
 Train:
 
 ```sh
 uv run train Cartpole-Balance
 uv run train Cartpole-Swingup
+```
+
+Warm-start a 3-link run from a 2-link checkpoint. `cartpole-warm-start` widens
+the policy's input layer so it starts out acting exactly like the 2-link
+policy and ignoring the third link:
+
+```sh
+uv run cartpole-warm-start logs/rsl_rl/cartpole/<timestamp>/model_<N>.pt \
+  logs/rsl_rl/cartpole3/<name>/model_0.pt
+uv run train Cartpole3-Swingup --agent.resume True \
+  --agent.load-run <name> --agent.load-checkpoint model_0.pt
 ```
 
 Play a trained checkpoint. `cartpole-play` wraps mjlab's `play` command and
